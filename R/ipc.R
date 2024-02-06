@@ -17,6 +17,7 @@
 #' get_ipc_data("subyacente")
 #' get_ipc_data("regiones")
 #' get_ipc_data("tnt")
+
 get_ipc_data <- function(desagregacion) {
   checkmate::assert_character(desagregacion)
   checkmate::assert_choice(
@@ -24,11 +25,15 @@ get_ipc_data <- function(desagregacion) {
     choices = c("general", "grupos", "regiones", "subyacente", "tnt")
   )
 
-  if (desagregacion == "general") return(get_ipc_general())
-  if (desagregacion == "grupos") return(get_ipc_grupos())
-  if (desagregacion == "regiones") return(get_ipc_regiones())
-  if (desagregacion == "subyacente") return(get_ipc_subyacente())
-  if (desagregacion == "tnt") return(get_ipc_tnt())
+  result <- switch(desagregacion,
+               "general" = get_ipc_general(),
+               "grupos" = get_ipc_grupos(),
+               "regiones" = get_ipc_regiones(),
+               "subyacente" = get_ipc_subyacente(),
+               "tnt" = get_ipc_tnt()
+               )
+
+  return(result)
 }
 
 #' To get the general CPI data
@@ -61,18 +66,15 @@ get_ipc_general <- function() {
       dplyr::select(1:7) |>
       stats::setNames(var_names) |>
       dplyr::filter(!is.na(mes)) |>
+      tidyr::fill(year) |>
       dplyr::mutate(
-        fecha = seq(
-          lubridate::ymd("1984/01/01"),
-          by = "month",
-          length.out = dplyr::n()),
-        year = lubridate::year(fecha),
-        mes = crear_mes(mes)
-      ) |>
+        mes = crear_mes(mes),
+        fecha = lubridate::make_date(year, mes)) |>
       dplyr::select(fecha, year, mes, dplyr::everything())
 
     ipc_general
 }
+
 
 #' To get the CPI data by group of goods and services
 #'
@@ -89,7 +91,7 @@ get_ipc_grupos <- function() {
   utils::download.file(url_descarga, file_path, mode = "wb", quiet = TRUE)
 
   header_ipc_grupos <- c(
-    "fecha", "ipc_ayb", "ipc_ayb_vm", "ipc_alcohol_tabaco",
+    "mes", "ipc_ayb", "ipc_ayb_vm", "ipc_alcohol_tabaco",
     "ipc_alcohol_tabaco_vm", "ipc_ropa_calzado", "ipc_ropa_calzado_vm",
     "ipc_vivienda", "ipc_vivienda_vm",
     "ipc_muebles", "ipc_muebles_vm", "ipc_salud", "ipc_salud_vm",
@@ -102,7 +104,7 @@ get_ipc_grupos <- function() {
   suppressMessages(
     ipc_grupos <- readxl::read_excel(
       file_path,
-      skip = 10,
+      skip = 7,
       col_names = FALSE,
       na = "-"
     ))
@@ -112,16 +114,13 @@ get_ipc_grupos <- function() {
     janitor::clean_names() |>
     dplyr::select(1:25) |>
     stats::setNames(header_ipc_grupos) |>
+    dplyr::filter(!is.na(mes)) |>
+    dplyr::mutate(year = ifelse(grepl("^\\d{4}$", mes), as.numeric(mes), NA)) |>
+    tidyr::fill(year) |>
     dplyr::filter(!is.na(ipc_ayb)) |>
     dplyr::mutate(
-      fecha = seq(
-        lubridate::ymd("1999/01/01"),
-        by = "month",
-        length.out = dplyr::n()),
-      year = lubridate::year(fecha),
-      mes = crear_mes(
-        mes = lubridate::month(fecha),
-        type = "number_to_text")) |>
+      mes = crear_mes(mes),
+      fecha = lubridate::make_date(year, mes)) |>
     dplyr::select(fecha, year, mes, dplyr::everything())
 
   ipc_grupos
@@ -160,14 +159,10 @@ get_ipc_regiones <- function() {
     ipc_region |>
     stats::setNames(header_ipc_regiones) |>
     dplyr::filter(!is.na(mes)) |>
+    tidyr::fill(year) |>
     dplyr::mutate(
-      fecha = seq(
-        lubridate::ymd("2011/01/01"),
-        by = "month",
-        length.out = dplyr::n()),
-      year = lubridate::year(fecha),
-      mes = crear_mes(
-        mes = lubridate::month(fecha), type = "number_to_text")) |>
+      mes = crear_mes(mes),
+      fecha = lubridate::make_date(year, mes)) |>
     dplyr::select(fecha, year, mes, dplyr::everything())
 
   ipc_region
@@ -196,28 +191,25 @@ get_ipc_subyacente <- function() {
   base::suppressMessages(
     ipc_subyacente <- readxl::read_excel(
       file_path,
-      skip = 25,
-      col_names = FALSE, na = c("-")
+      col_names = FALSE,
+      na = c("-")
     ))
 
   ipc_subyacente <-
-    ipc_subyacente |>
+    ipc_subyacente[complete.cases(ipc_subyacente$`...2`), ] |>
     janitor::clean_names() |>
     dplyr::select(1:6) |>
     stats::setNames(header_ipc_subyacente) |>
+    tidyr::fill(year) |>
     dplyr::mutate(
-      fecha = seq(
-        lubridate::ymd("2000/01/01"),
-        by = "month",
-        length.out = dplyr::n()),
-      year = lubridate::year(fecha),
-      mes = crear_mes(
-        mes = lubridate::month(fecha), type = "number_to_text")) |>
+        mes = crear_mes(mes),
+        fecha = lubridate::make_date(year, mes)) |>
     dplyr::select(fecha, year, mes, dplyr::everything()) |>
     dplyr::filter(!is.na(ipc_subyacente))
 
   ipc_subyacente
 }
+
 
 #' To get the CPI data by transferable or not
 #'
@@ -243,24 +235,21 @@ get_ipc_tnt <- function() {
   suppressMessages(
     ipc_tnt <- readxl::read_excel(
       file_path,
-      skip = 31,
       col_names = FALSE,
+      skip = 5,
       na = "-"
-    )
-  )
+    ))
 
   ipc_tnt <- ipc_tnt |>
     janitor::clean_names() |>
+    tidyr::fill(x1) |>
+    dplyr::filter(!is.na(x1), !is.na(x2)) |>
     stats::setNames(header_ipc_tnt) |>
     dplyr::filter(!is.na(mes)) |>
+    tidyr::fill(year) |>
     dplyr::mutate(
-      fecha = seq(
-        lubridate::ymd("1999/02/01"),
-        by = "month",
-        length.out = dplyr::n()),
-      year = lubridate::year(fecha),
-      mes = crear_mes(
-        mes = lubridate::month(fecha), type = "number_to_text")) |>
+      mes = crear_mes(mes),
+      fecha = lubridate::make_date(year, mes)) |>
     dplyr::select(fecha, year, mes, dplyr::everything())
 
   ipc_tnt
